@@ -41,6 +41,15 @@ Mat Dilation(Mat src, int dilation_size, int dilation_elem, void*);
 Mat Erosion(Mat src, int erosion_size, int erosion_elem, void*);
 
 
+void onMouse(int event, int x, int y, int, void*)
+{
+	if (event != CV_EVENT_LBUTTONDOWN)
+		return;
+
+	Point pt = Point(x, y);
+	cout << "x=" << pt.x << "\t y=" << pt.y << "\t value=" << (int)processed.at<uchar>(y, x) << "\n";
+
+}
 
 int main() {
 	// Setting for realsense device
@@ -99,7 +108,8 @@ int main() {
 		return 1;
 	}
 	/// Create Trackbar to choose type of Threshold
-
+	namedWindow("Depth Image [Processed]");
+	setMouseCallback("Depth Image [Processed]", onMouse, 0);
 
 
 	for (;;) {
@@ -115,7 +125,7 @@ int main() {
 		Mat ir2(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared2), Mat::AUTO_STEP);
 
 		Mat color(Size(frameWidth, frameHeight), CV_8UC3, (void*)dev->get_frame_data(rs::stream::color), Mat::AUTO_STEP);
-		
+
 		//Depth Compute
 		Ptr<StereoBM> sbm = StereoBM::create(16*4, 13);
 
@@ -129,18 +139,21 @@ int main() {
 		//-- 4. Display it as a CV_8UC1 image
 		depth.convertTo(frameDepth, CV_8UC1, 255 / (maxVal - minVal));
 
-		rectangle(color, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
-
-		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
-		imshow("Raw Depth Image", frameDepth);
 		//imshow("Cam Depth Image", cam_frameDepth);
 
 		//-- CROP
 		Rect roi(x_roi, y_roi, width_roi, height_roi);
-		processed = frameDepth(roi);
+		Mat color_replace = color(roi).clone();
+
+		processed = frameDepth(roi).clone();
+		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
 		//Draw Crop Area
-		
-		imshow("Color Image", color);
+		rectangle(color, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
+		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
+
+		//imshow("Color Image [Original]", color);
+		imshow("Raw Depth Image", frameDepth);
+
 
 
 		///////////////////////////////////////////
@@ -162,8 +175,37 @@ int main() {
 		dilated = Dilation(processed, 3, 1, "MORPH CROSS");
 		eroded = Erosion(dilated,3,1,"MORPH CROSS");
 		processed = dilated;
-		
+		//THRESHOLDING
+		threshold(processed, processed, 180, 250, CV_THRESH_BINARY);
 		imshow("Depth Image [Processed]", processed);
+		try {
+			for (int x = 0; x < processed.cols; x++) {
+				for (int y = 0; y < processed.rows; y++) {
+					if ((int)processed.at<uchar>(x, y) == 250) {
+						try {
+							//color_replace.at<Vec3b>(x,y)[0] = 0;
+						//	color_replace.at<Vec3b>(x,y)[2] = 0;
+						//	color_replace.at<Vec3b>(x,y)[1] = 0;
+						}
+						catch (Exception& e) {
+							const char* err_msg = e.what();
+							cout << "exception caught: " << err_msg << endl;
+						}
+					}
+				}
+			}
+		}
+		catch (int e) {
+			cout << "An exception occurred. Exception Nr. " << e << '\n';
+		}
+		imshow("Color Image", color_replace);
+
+
+
+
+
+
+
 
 		/////////////////////CANNY EDGE DETECTOR/////////////
 		Mat canny_output;
@@ -172,7 +214,16 @@ int main() {
 		/// Detect edges using canny
 		Canny(processed, canny_output, 100, 100 * 2, 3);
 		/// Find contours
-		findContours(canny_output, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, Point(0, 0));
+		findContours(canny_output, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
+
+		//Set Hull
+		vector<vector<Point>> hull(contours.size());
+		for (size_t i = 0; i < contours.size(); i++)
+		{
+			convexHull(Mat(contours[i]), hull[i], false);
+		}
+
+
 
 		/// Draw contours
 		Mat drawing = Mat::zeros(canny_output.size(), CV_8UC3);
@@ -188,6 +239,7 @@ int main() {
 			cout << "#Contour : " << i << "	Area : " << area << endl;
 			Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 			drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
+			drawContours(drawing, hull, (int)i, color, 1, 8, vector<Vec4i>(), 0, Point());
 		}
 		cout << "Area > 0 : " << counter << endl;
 		
