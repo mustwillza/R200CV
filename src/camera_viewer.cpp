@@ -44,8 +44,10 @@ void clickToRead(int event, int x, int y, int, void*)
 	cout << "x=" << pt.x << "\t y=" << pt.y << "\t value=" << (int)raw_depth.at<uchar>(y, x) << "\n";
 }
 
-
-
+VideoWriter rgbWrite; //("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), true);
+VideoWriter depthWrite;//("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), false);
+VideoCapture rgbRead;
+VideoCapture depthRead;
 int main() {
 	//Create GUI 
 	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
@@ -54,29 +56,57 @@ int main() {
 
 	cout << "Initialization..." << endl;
 	rs::context ctx;
-	rs::device * dev = ctx.get_device(0);
-	if (!RS200_Initialize(dev)) {
-		cout << "	Using device 0, an " << dev->get_name() << endl;
-		cout << "	Serial number: " << dev->get_serial() << endl;
-		cout << "	Firmware version: " << dev->get_firmware_version() << endl;
-		cout << "Initialize Complete" << endl;
-	}
+	rs::device * dev;
 
 	//Click to read depth value
 	cv::namedWindow("Raw Depth Image");
 	setMouseCallback("Raw Depth Image", clickToRead, 0);
-
 	//Start Update System (Loop)
 	for (;;) {
 
 
 		//Wait for next frame ready!
-		dev->wait_for_frames();
-
+		Mat color(Size(frameWidth, frameHeight), CV_8UC3,Mat::AUTO_STEP);
+		Mat frameDepth(Size(frameWidth, frameHeight),CV_8UC1);
 		//Get Image data from R200 Camera
-		Mat color(Size(frameWidth, frameHeight), CV_8UC3, (void*)dev->get_frame_data(rs::stream::color), Mat::AUTO_STEP);
-		Mat frameDepth = getDepthImage(dev);
-
+		if (!playback && run_cam) {
+			dev->wait_for_frames();
+			color.data = (uchar*)dev->get_frame_data(rs::stream::color);
+			frameDepth = getDepthImage(dev);
+		}
+		else 
+		if(playback){
+			if (rgbRead.isOpened()) {
+				try {
+					rgbRead.read(color);
+				}
+				catch (cv::Exception& e)
+				{
+					const char* err_msg = e.what();
+					std::cout << "exception caught: " << err_msg << std::endl;
+				}
+			}
+			else {
+				cout << "RGB playback failed" <<endl;
+				playback = false;
+			}
+			if (depthRead.isOpened()) {
+				try {
+					Mat tmp;
+					depthRead.read(tmp);
+					cvtColor(tmp, frameDepth, cv::COLOR_RGB2GRAY);
+				}
+				catch (cv::Exception& e)
+				{
+					const char* err_msg = e.what();
+					std::cout << "exception caught: " << err_msg << std::endl;
+				}
+			}
+			else {
+				cout << "Depth playback failed"<<endl;
+				playback = false;
+			}
+		}
 		//-- CROP
 		Rect roi(x_roi, y_roi, width_roi, height_roi);
 		Mat color_replace = color(roi).clone();
@@ -87,7 +117,8 @@ int main() {
 		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
 
 		//Draw Crop Area
-		rectangle(color, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
+		Mat color2 = color.clone();
+		rectangle(color2, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
 		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
 		imshow("Raw Depth Image", frameDepth);
 
@@ -242,9 +273,87 @@ int main() {
 			std::cout << "exception caught: " << err_msg << std::endl;
 		}
 
+		if (cvui::button(frame, 50, 350, "Record")) {
+			record = !record;
+			if (record == true) {
+				std::cout << "Record! : " << record << std::endl;
+				rgbWrite.open("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), true);
+				depthWrite.open("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), false);
+				if (rgbWrite.isOpened()) {
+					cout << "ColorVid.mkv Ready!" << endl;
+				}
+				else {
+					cout << "Cannot open ColorVid to rec." << endl;
 
-		imshow(MAIN_WINDOW_NAME, frame);
+				}
+				if (depthWrite.isOpened()) {
+					cout << "depthVid.mkv Ready!" << endl;
+				}
+				else {
+					cout << "Cannot open depthVid to rec." << endl;
+				}
+
+			}
+			else {
+				std::cout << "Stop Record! : " << record << std::endl;
+				rgbWrite.release();
+				depthWrite.release();
+			}
+
+		}
+
+		if (record) {
+			if (rgbWrite.isOpened()) {
+				rgbWrite.write(color);
+			}
+			else {
+				cout << "RGB Record failed " << endl;
+			}
+			if (depthWrite.isOpened()) {
+				depthWrite.write(raw_depth);
+			}
+			else {
+				cout << "Depth Record failed " << endl;
+			}
+		}
+		
+		if (cvui::button(frame, 50, 400, "Playback")) {
+			playback = !playback;
+			if (playback) {
+				cout << "Video Playback!" << endl;
+				if (rgbRead.open("ColorVid.mkv")) {
+					cout << "Playback ColorVid Ready" << endl;
+				}
+
+				if (depthRead.open("depthVid.mkv")) {
+					cout << "Playback depthVid Ready" << endl;
+				}
+			}
+			else {
+				cout << "Playback stopped" << endl;
+				rgbRead.release();
+				depthRead.release();
+			}
+		}
+
+		if (cvui::button(frame, 50, 450, "R200 Connect")) {
+			if (!run_cam) {
+				dev = ctx.get_device(0);
+				if (!RS200_Initialize(dev)) {
+					cout << "	Using device 0, an " << dev->get_name() << endl;
+					cout << "	Serial number: " << dev->get_serial() << endl;
+					cout << "	Firmware version: " << dev->get_firmware_version() << endl;
+					cout << "Initialize Complete" << endl;
+				}
+				run_cam = true;
+			}
+			else {
+				dev->stop();
+				run_cam = false;
+			}
+		}
 		cvui::update();
+		imshow(MAIN_WINDOW_NAME, frame);
 
 		//Awaiting key input to escape || Step Look
 		if (waitKey(1) == 27) break;

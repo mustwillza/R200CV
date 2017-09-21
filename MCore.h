@@ -6,6 +6,8 @@
 // include OpenCV header file
 #include <opencv2/opencv.hpp>
 #include "opencv2/features2d.hpp"
+#include "opencv2/videoio.hpp"
+
 
 using namespace std;
 using namespace cv;
@@ -40,6 +42,9 @@ bool en_threshold = false;
 bool en_contour = false;
 bool en_blob = false;
 bool step_look = false;
+bool record = false;
+bool playback = false;
+bool run_cam = false;
 
 // Setting for realsense device
 const int frameHeight = 480;
