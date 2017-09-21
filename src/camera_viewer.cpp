@@ -13,145 +13,82 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 //Using native Windows app with Unicode version
 //#pragma comment(linker, "/SUBSYSTEM:CONSOLE /ENTRY:wWinMainCRTStartup")
 
+#define MAIN_WINDOW_NAME "Assembly Project Monitoring System : FIBO HIT-UTAS SANWA"
+
 
 // include the librealsense C++ header file
 #include <librealsense/rs.hpp>
 
+// include CV UI header file
+#include "cvui.h"
+
+//include main Resoruce
 #include "resource.h"
+//include Core function file
+#include "MCore.h"
 // include OpenCV header file
 #include <opencv2/opencv.hpp>
 #include "opencv2/features2d.hpp"
 using namespace std;
 using namespace cv;
 
-int threshold_value = 120;
-int threshold_type = 3;;
-int const max_value = 255;
-int const max_type = 4;
-int const max_BINARY_value = 255;
 RNG rng(12345);
-int x_roi = 340;
-int y_roi = 50;
-int width_roi = 290;
-int height_roi = 400;
-bool step_look = false;
 Mat processed;
+Mat raw_depth;
 
-Mat Dilation(Mat src, int dilation_size, int dilation_elem, void*);
-Mat Erosion(Mat src, int erosion_size, int erosion_elem, void*);
-
-
-void onMouse(int event, int x, int y, int, void*)
+void clickToRead(int event, int x, int y, int, void*)
 {
 	if (event != CV_EVENT_LBUTTONDOWN)
 		return;
-
 	Point pt = Point(x, y);
-	cout << "x=" << pt.x << "\t y=" << pt.y << "\t value=" << (int)processed.at<uchar>(y, x) << "\n";
-
+	cout << "x=" << pt.x << "\t y=" << pt.y << "\t value=" << (int)raw_depth.at<uchar>(y, x) << "\n";
 }
 
+
+
 int main() {
-	// Setting for realsense device
-	const int frameHeight = 480;
-	const int frameWidth = 640;
+	//Create GUI 
+	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
+	cv::namedWindow(MAIN_WINDOW_NAME);
+	cvui::init(MAIN_WINDOW_NAME);
 
 	cout << "Initialization..." << endl;
 	rs::context ctx;
 	rs::device * dev = ctx.get_device(0);
-	cout << "	Using device 0, an " <<  dev->get_name() <<endl;
-	cout << "	Serial number: " << dev->get_serial() << endl;
-	cout << "	Firmware version: " << dev->get_firmware_version() << endl;
-	// Configure Infrared stream to run at VGA resolution at 30 frames per second
-	//dev->enable_stream(rs::stream::infrared, 320, 240, rs::format::y8, 30);
-
-	// We must also configure depth stream in order to IR stream run properly
-	//dev->enable_stream(rs::stream::depth, 480, 360, rs::format::z16, 30);
-
-		try {
-			dev->enable_stream(rs::stream::color, frameWidth, frameHeight, rs::format::bgr8, 30);
-			dev->enable_stream(rs::stream::depth, frameWidth, frameHeight, rs::format::z16, 30);
-			dev->enable_stream(rs::stream::infrared2, frameWidth, frameHeight, rs::format::y8, 30);
-			dev->enable_stream(rs::stream::infrared, frameWidth, frameHeight, rs::format::y8, 30);
-
-			dev->start();
-
-		}
-		catch (const rs::error & e) {
-			cout << e.get_failed_function().c_str() << e.get_failed_args().c_str() << endl << e.what() << endl;
-			return EXIT_FAILURE;
-		}
-	// Start streaming
-
-	// Camera warmup - Dropped frames to allow stabilization
-	for (int i = 0; i < 30; i++)
-		dev->wait_for_frames();
-
-	// Creating OpenCV matrix from depth image
-	namedWindow("Color Image", WINDOW_AUTOSIZE);
-
-	Mat tmp;
-	if (!dev->is_stream_enabled(rs::stream::color)) {
-		cout << "[ ERROR ] Disabled color stream" << endl;
-		return 1;
+	if (!RS200_Initialize(dev)) {
+		cout << "	Using device 0, an " << dev->get_name() << endl;
+		cout << "	Serial number: " << dev->get_serial() << endl;
+		cout << "	Firmware version: " << dev->get_firmware_version() << endl;
+		cout << "Initialize Complete" << endl;
 	}
-	if (!dev->is_stream_enabled(rs::stream::depth)) {
-		cout << "[ ERROR ] Disabled depth stream" << endl;
-		return 1;
-	}
-	if (!dev->is_stream_enabled(rs::stream::infrared)) {
-		cout << "[ ERROR ] Disabled infrared stream" << endl;
-		return 1;
-	}
-	if (!dev->is_stream_enabled(rs::stream::infrared2)) {
-		cout << "[ ERROR ] Disabled infrared2 stream" << endl;
-		return 1;
-	}
-	/// Create Trackbar to choose type of Threshold
-	namedWindow("Depth Image [Processed]");
-	setMouseCallback("Depth Image [Processed]", onMouse, 0);
 
+	//Click to read depth value
+	cv::namedWindow("Raw Depth Image");
+	setMouseCallback("Raw Depth Image", clickToRead, 0);
 
+	//Start Update System (Loop)
 	for (;;) {
+
+
+		//Wait for next frame ready!
 		dev->wait_for_frames();
-		//Mat cam_depth(Size(frameWidth, frameHeight), CV_16UC1, (void*)dev->get_frame_data(rs::stream::depth), Mat::AUTO_STEP);
-		//Mat depth;
-		//Mat cam_frameDepth;
-		//cam_depth.convertTo(cam_frameDepth, CV_8UC1);
-		//equalizeHist(frameDepth, frameDepth);
-		//applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
 
-		Mat ir1(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared), Mat::AUTO_STEP);
-		Mat ir2(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared2), Mat::AUTO_STEP);
-
+		//Get Image data from R200 Camera
 		Mat color(Size(frameWidth, frameHeight), CV_8UC3, (void*)dev->get_frame_data(rs::stream::color), Mat::AUTO_STEP);
-
-		//Depth Compute
-		Ptr<StereoBM> sbm = StereoBM::create(16*4, 13);
-
-		Mat depth(Size(frameWidth,frameHeight),CV_16UC1),frameDepth(Size(frameWidth, frameHeight), CV_8UC1);
-		
-		sbm->compute(ir1, ir2, depth);
-		double minVal; double maxVal;
-
-		minMaxLoc(depth, &minVal, &maxVal);
-
-		//-- 4. Display it as a CV_8UC1 image
-		depth.convertTo(frameDepth, CV_8UC1, 255 / (maxVal - minVal));
-
-		//imshow("Cam Depth Image", cam_frameDepth);
+		Mat frameDepth = getDepthImage(dev);
 
 		//-- CROP
 		Rect roi(x_roi, y_roi, width_roi, height_roi);
 		Mat color_replace = color(roi).clone();
-
 		processed = frameDepth(roi).clone();
+		Mat preprocess = frameDepth(roi).clone();
+		raw_depth = frameDepth.clone();
+
 		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
+
 		//Draw Crop Area
 		rectangle(color, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
 		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
-
-		//imshow("Color Image [Original]", color);
 		imshow("Raw Depth Image", frameDepth);
 
 
@@ -160,93 +97,155 @@ int main() {
 		////////      Pre Process here     ////////
 		///////////////////////////////////////////
 
-		for (int row = 0; row < processed.rows; row++) {
-			for (int col = 0; col < processed.cols; col++) {
-				//cout << "row :" <<row <<",col:"<<col <<",val:" << (int)ir.at<uchar>(row, col) << endl;
-//				if ((int)depth.at<uchar>(row, col) < 0) {
-					//processed.at<uchar>(row, col) = 255;
-	//			}
-			}
+		//Gaussian Blur
+		if (en_gaussian) {
+			GaussianBlur(processed, processed,en_gaussian_kernel,1);
 		}
-		GaussianBlur(processed, processed, Size(3,3),5);
-		addWeighted(processed, 1.5, processed, -0.5, 0, processed);
-		Mat dilated;
-		Mat eroded;
-		dilated = Dilation(processed, 3, 1, "MORPH CROSS");
-		eroded = Erosion(dilated,3,1,"MORPH CROSS");
-		processed = dilated;
+
+		//Sharpen (Add Weighted)
+		if (en_sharpen) {
+			addWeighted(processed, en_sharpen_alpha, processed, en_sharpen_beta, en_sharpen_gamma, processed);
+		}
+
+		//Dilasion
+		if (en_dilation) {
+			processed = Erosion(processed, 3, 2, "MORPH CROSS");
+		}
+
+		//Erosion
+		if (en_erosion) {
+			processed = Dilation(processed, 3, 2, "MORPH CROSS");
+		}
+		
 		//THRESHOLDING
-		threshold(processed, processed, 180, 250, CV_THRESH_BINARY);
-		imshow("Depth Image [Processed]", processed);
-		try {
-			for (int x = 0; x < processed.cols; x++) {
-				for (int y = 0; y < processed.rows; y++) {
-					if ((int)processed.at<uchar>(x, y) == 250) {
-						try {
-							//color_replace.at<Vec3b>(x,y)[0] = 0;
-						//	color_replace.at<Vec3b>(x,y)[2] = 0;
-						//	color_replace.at<Vec3b>(x,y)[1] = 0;
-						}
-						catch (Exception& e) {
-							const char* err_msg = e.what();
-							cout << "exception caught: " << err_msg << endl;
-						}
-					}
+		if (en_threshold) {
+			threshold(processed, processed, 180, 250, CV_THRESH_BINARY);
+		}
+		//Temporary Drawing
+		Mat drawing;
+		cvtColor(processed, drawing, cv::COLOR_GRAY2BGR);
+
+		///////////////////////////////////////////
+		////////     Feature Extraction    ////////
+		///////////////////////////////////////////
+
+		//Contour
+		if (en_contour) {
+			/////////////////////CANNY EDGE DETECTOR/////////////
+			Mat canny_output;
+			vector<vector<Point> > contours;
+			vector<Vec4i> hierarchy;
+			/// Detect edges using canny
+			Canny(processed.clone(), canny_output, 100, 100 * 2, 3);
+			/// Find contours
+			findContours(canny_output, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
+
+			/// Draw contours
+			drawing = Mat::zeros(canny_output.size(), CV_8UC3);
+			//cout << "Contours : " << contours.size() << endl;
+			int counter = 0;
+			for (int i = 0; i < contours.size(); i++)
+			{
+				approxPolyDP(Mat(contours[i]), contours[i], 3, true);
+				double area = contourArea(contours[i]);
+				if (area < 0) {
+					continue;
 				}
+				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+				drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
 			}
 		}
-		catch (int e) {
-			cout << "An exception occurred. Exception Nr. " << e << '\n';
-		}
-		imshow("Color Image", color_replace);
 
+		//Blob Detector
+		if (en_blob) {
+			/// BLOB Detection
+			// Setup SimpleBlobDetector parameters.
+			SimpleBlobDetector::Params params;
 
+			// Change thresholds
+			params.minThreshold = 180;
+			params.maxThreshold = 250;
 
+			// Filter by Area.
+			params.filterByArea = true;
+			params.minArea = 10;
 
+			// Filter by Circularity
+			params.filterByCircularity = true;
+			params.minCircularity = 0.1;
 
+			// Filter by Convexity
+			params.filterByConvexity = true;
+			params.minConvexity = 0.2;
 
+			// Filter by Inertia
+			params.filterByInertia = true;
+			params.minInertiaRatio = 0.01;
+			Ptr<SimpleBlobDetector> b_detector = SimpleBlobDetector::create(params);
+			// Storage for blobs
+			vector<KeyPoint> keypoints;
 
+			// Detect blobs
+			b_detector->detect(preprocess, keypoints);
 
-		/////////////////////CANNY EDGE DETECTOR/////////////
-		Mat canny_output;
-		vector<vector<Point> > contours;
-		vector<Vec4i> hierarchy;
-		/// Detect edges using canny
-		Canny(processed, canny_output, 100, 100 * 2, 3);
-		/// Find contours
-		findContours(canny_output, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
+			// Draw detected blobs as red circles.
+			// DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
+			// the size of the circle corresponds to the size of blob
 
-		//Set Hull
-		vector<vector<Point>> hull(contours.size());
-		for (size_t i = 0; i < contours.size(); i++)
-		{
-			convexHull(Mat(contours[i]), hull[i], false);
-		}
-
-
-
-		/// Draw contours
-		Mat drawing = Mat::zeros(canny_output.size(), CV_8UC3);
-		cout << "Contours : " << contours.size() << endl;
-		int counter = 0;
-		for (int i = 0; i< contours.size(); i++)
-		{
-			approxPolyDP(Mat(contours[i]), contours[i], 3, true);
-			double area = contourArea(contours[i]);
-			if (area < 0) {
-				continue;
+			Mat im_with_keypoints;
+			drawKeypoints(drawing, keypoints, drawing, Scalar(255, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+			cout << "////////////Blob Detection/////////////" << endl;
+			for (std::vector<cv::KeyPoint>::iterator blobIterator = keypoints.begin(); blobIterator != keypoints.end(); blobIterator++) {
+				std::cout << "size of blob is: " << blobIterator->size << std::endl;
+				std::cout << "point is at: " << blobIterator->pt.x << " " << blobIterator->pt.y << std::endl;
 			}
-			cout << "#Contour : " << i << "	Area : " << area << endl;
-			Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
-			drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
-			drawContours(drawing, hull, (int)i, color, 1, 8, vector<Vec4i>(), 0, Point());
+			cout << "////////End Blob Detection/////////////" << endl << endl;
+
 		}
-		cout << "Area > 0 : " << counter << endl;
 		
-		/// Show in a window
-		namedWindow("Contours", WINDOW_AUTOSIZE);
-		imshow("Contours", drawing);
-		
+
+
+		//GUI Window
+		frame = cv::Scalar(49, 52, 49);
+		cvui::window(frame, 15, 10, 180, 600, "Controller");
+		cvui::checkbox(frame, 30, 40, "Gaussian Blur", &en_gaussian);
+		cvui::checkbox(frame, 30, 60, "Add Weighted", &en_sharpen);
+		cvui::checkbox(frame, 30, 80, "Erosion", &en_erosion);
+		cvui::checkbox(frame, 30, 100, "Dilation", &en_dilation);
+		cvui::checkbox(frame, 30, 120, "Threshold", &en_threshold);
+		cvui::checkbox(frame, 30, 140, "Contour", &en_contour);
+		cvui::checkbox(frame, 30, 160, "Blob", &en_blob);
+		cvui::checkbox(frame, 30, 300, "Step (Press key to show image)", &step_look);
+
+		//Display Multi Image in single window
+		try
+		{
+			Mat Color_display;
+			resize(color_replace, Color_display, cv::Size(), 0.8, 0.8);
+			Rect roi(Rect(200, 15, Color_display.cols, Color_display.rows));
+			Color_display.copyTo(frame(roi));
+
+			Mat processed_display;
+			resize(processed, processed_display, cv::Size(), 0.8, 0.8);
+			Rect roi2(Rect(200+Color_display.cols+10, 15, processed_display.cols, processed_display.rows));
+			cvtColor(processed_display, processed_display, cv::COLOR_GRAY2BGR);
+			processed_display.copyTo(frame(roi2));
+
+			Mat drawing_display;
+			resize(drawing, drawing_display, cv::Size(), 0.8, 0.8);
+			Rect roi3(Rect(200 + Color_display.cols + processed_display.cols + 20, 15, processed_display.cols, processed_display.rows));
+			drawing_display.copyTo(frame(roi3));
+		}
+		catch (cv::Exception& e)
+		{
+			const char* err_msg = e.what();
+			std::cout << "exception caught: " << err_msg << std::endl;
+		}
+
+
+		imshow(MAIN_WINDOW_NAME, frame);
+		cvui::update();
+
 		//Awaiting key input to escape || Step Look
 		if (waitKey(1) == 27) break;
 		if (waitKey(1) == 's')step_look = !step_look;
@@ -256,37 +255,4 @@ int main() {
 
 	return 0;
 
-}
-
-/**  @function Erosion  */
-Mat Erosion(Mat src,int erosion_size,int erosion_elem, void*)
-{
-	int erosion_type;
-	if (erosion_elem == 0) { erosion_type = MORPH_RECT; }
-	else if (erosion_elem == 1) { erosion_type = MORPH_CROSS; }
-	else if (erosion_elem == 2) { erosion_type = MORPH_ELLIPSE; }
-	Mat erosion_dst;
-	Mat element = getStructuringElement(erosion_type,
-		Size(2 * erosion_size + 1, 2 * erosion_size + 1),
-		Point(erosion_size, erosion_size));
-	/// Apply the erosion operation
-	erode(src, erosion_dst, element);
-	return erosion_dst;
-}
-
-/** @function Dilation */
-Mat Dilation(Mat src,int dilation_size,int dilation_elem, void*)
-{
-	Mat dilation_dst;
-	int dilation_type;
-	if (dilation_elem == 0) { dilation_type = MORPH_RECT; }
-	else if (dilation_elem == 1) { dilation_type = MORPH_CROSS; }
-	else if (dilation_elem == 2) { dilation_type = MORPH_ELLIPSE; }
-
-	Mat element = getStructuringElement(dilation_type,
-		Size(2 * dilation_size + 1, 2 * dilation_size + 1),
-		Point(dilation_size, dilation_size));
-	/// Apply the dilation operation
-	dilate(src, dilation_dst, element);
-	return dilation_dst;
 }

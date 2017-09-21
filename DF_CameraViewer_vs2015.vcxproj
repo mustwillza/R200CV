@@ -238,8 +238,10 @@
     <ClCompile Include="Src\camera_viewer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="MCore.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="..\common\include\util_cmdline.h" />
+    <ClInclude Include="src\cvui.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="camera_viewer.rc" />
