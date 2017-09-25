@@ -19,8 +19,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectName>DF_CameraViewer</ProjectName>
-    <RootNamespace>DF_CameraViewer</RootNamespace>
+    <ProjectName>AssemR200</ProjectName>
+    <RootNamespace>AssemR200</RootNamespace>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{9FA5C9AF-4006-4999-A6D7-3AB896083572}</ProjectGuid>
   </PropertyGroup>

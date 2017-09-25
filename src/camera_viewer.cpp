@@ -15,6 +15,7 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 
 #define MAIN_WINDOW_NAME "Assembly Project Monitoring System : FIBO HIT-UTAS SANWA"
 
+#include <algorithm>
 
 // include the librealsense C++ header file
 #include <librealsense/rs.hpp>
@@ -55,18 +56,16 @@ int main() {
 	cvui::init(MAIN_WINDOW_NAME);
 
 	cout << "Initialization..." << endl;
-	rs::context ctx;
 	rs::device * dev;
-
 	//Click to read depth value
 	cv::namedWindow("Raw Depth Image");
 	setMouseCallback("Raw Depth Image", clickToRead, 0);
 	//Start Update System (Loop)
 	for (;;) {
-
-
+		int hand_area = 0;
 		//Wait for next frame ready!
 		Mat color(Size(frameWidth, frameHeight), CV_8UC3,Mat::AUTO_STEP);
+
 		Mat frameDepth(Size(frameWidth, frameHeight),CV_8UC1);
 		//Get Image data from R200 Camera
 		if (!playback && run_cam) {
@@ -79,6 +78,11 @@ int main() {
 			if (rgbRead.isOpened()) {
 				try {
 					rgbRead.read(color);
+					if (color.empty()) {
+						cout << "End of video" << endl;
+						playback = false;
+						continue;
+					}
 				}
 				catch (cv::Exception& e)
 				{
@@ -108,10 +112,12 @@ int main() {
 			}
 		}
 		//-- CROP
-		Rect roi(x_roi, y_roi, width_roi, height_roi);
+		Rect roi(x_roi-32, y_roi-6, width_roi, height_roi);
+		Rect roi_depth(x_roi, y_roi, width_roi, height_roi);
+
 		Mat color_replace = color(roi).clone();
-		processed = frameDepth(roi).clone();
-		Mat preprocess = frameDepth(roi).clone();
+		processed = frameDepth(roi_depth).clone();
+		Mat preprocess = frameDepth(roi_depth).clone();
 		raw_depth = frameDepth.clone();
 
 		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
@@ -120,13 +126,17 @@ int main() {
 		Mat color2 = color.clone();
 		rectangle(color2, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
 		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
-		imshow("Raw Depth Image", frameDepth);
 
 
 
 		///////////////////////////////////////////
 		////////      Pre Process here     ////////
 		///////////////////////////////////////////
+		if (en_invert) {
+			bitwise_not(frameDepth, frameDepth);
+			bitwise_not(processed, processed);
+
+		}
 
 		//Gaussian Blur
 		if (en_gaussian) {
@@ -169,21 +179,44 @@ int main() {
 			/// Detect edges using canny
 			Canny(processed.clone(), canny_output, 100, 100 * 2, 3);
 			/// Find contours
-			findContours(canny_output, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
+			findContours(canny_output, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, Point(0, 0));
 
 			/// Draw contours
 			drawing = Mat::zeros(canny_output.size(), CV_8UC3);
 			//cout << "Contours : " << contours.size() << endl;
 			int counter = 0;
+
+			vector<Rect> boundRect(contours.size());
+			double area;
+			vector<Point2f>center(contours.size());
+			vector<float>radius(contours.size());
+			double min=1000, max=0;
+			short num_max;
+			for (int i = 0; i < contours.size(); i++) {
+				area = contourArea(contours[i]);
+				if (area > max) {
+					max = area;
+					num_max = i;
+				}
+				if (area < min) {
+					min = area;
+				}
+			}
+			cout << "Max Area : " << max << "\t Num Max : " << num_max << endl;
 			for (int i = 0; i < contours.size(); i++)
 			{
 				approxPolyDP(Mat(contours[i]), contours[i], 3, true);
-				double area = contourArea(contours[i]);
-				if (area < 0) {
-					continue;
+				area = contourArea(contours[i]);
+				if (i == num_max) {
+					boundRect[i] = boundingRect(Mat(contours[i]));
+					minEnclosingCircle((Mat)contours[i], center[i], radius[i]);
 				}
 				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+				rectangle(drawing, boundRect[i].tl(), boundRect[i].br(), color, 2, 8, 0);
 				drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
+
+				//drawContours(color_replace, contours, i, 124, 2, 8, hierarchy, 0, Point());
+
 			}
 		}
 
@@ -234,19 +267,42 @@ int main() {
 
 		}
 		
-
-
+		//Subtraction color image with threshold
+		if (en_subtract) {
+			if (en_threshold) {
+				for (int y = 0; y < color_replace.cols; y++) {
+					for (int x = 0; x < color_replace.rows; x++) {
+						if (en_addition) {
+							if (processed.at<uchar>(Point(y, x)) >= 100) {
+								hand_area++;
+							}
+							else {
+								color_replace.at<Vec3b>(Point(y, x)) = 0;
+							}
+						}else if (processed.at<uchar>(Point(y, x)) >= 100) {
+							color_replace.at<Vec3b>(Point(y, x)) = 0;
+							hand_area++;
+						}
+					}
+				}
+			}
+		}
+		
 		//GUI Window
 		frame = cv::Scalar(49, 52, 49);
 		cvui::window(frame, 15, 10, 180, 600, "Controller");
 		cvui::checkbox(frame, 30, 40, "Gaussian Blur", &en_gaussian);
-		cvui::checkbox(frame, 30, 60, "Add Weighted", &en_sharpen);
-		cvui::checkbox(frame, 30, 80, "Erosion", &en_erosion);
-		cvui::checkbox(frame, 30, 100, "Dilation", &en_dilation);
-		cvui::checkbox(frame, 30, 120, "Threshold", &en_threshold);
-		cvui::checkbox(frame, 30, 140, "Contour", &en_contour);
-		cvui::checkbox(frame, 30, 160, "Blob", &en_blob);
+		cvui::checkbox(frame, 30, 60, "Invert Depth", &en_invert);
+		cvui::checkbox(frame, 30, 80, "Add Weighted", &en_sharpen);
+		cvui::checkbox(frame, 30, 100, "Erosion", &en_erosion);
+		cvui::checkbox(frame, 30, 120, "Dilation", &en_dilation);
+		cvui::checkbox(frame, 30, 140, "Threshold", &en_threshold);
+		cvui::checkbox(frame, 30, 160, "Contour", &en_contour);
+		cvui::checkbox(frame, 30, 180, "Blob", &en_blob);
 		cvui::checkbox(frame, 30, 300, "Step (Press key to show image)", &step_look);
+		cvui::checkbox(frame, 30, 200, "Color - Contour", &en_subtract);
+		cvui::checkbox(frame, 30, 220, "Invert(Color-Contour)", &en_addition);
+
 
 		//Display Multi Image in single window
 		try
@@ -335,29 +391,42 @@ int main() {
 				depthRead.release();
 			}
 		}
+		rs::log_to_console(rs::log_severity::warn);
 
 		if (cvui::button(frame, 50, 450, "R200 Connect")) {
 			if (!run_cam) {
-				dev = ctx.get_device(0);
-				if (!RS200_Initialize(dev)) {
-					cout << "	Using device 0, an " << dev->get_name() << endl;
-					cout << "	Serial number: " << dev->get_serial() << endl;
-					cout << "	Firmware version: " << dev->get_firmware_version() << endl;
-					cout << "Initialize Complete" << endl;
+				static rs::context ctx;
+
+				if (ctx.get_device_count() == 0) { cout << "No Camera Found" << endl; }
+				else {
+					dev = ctx.get_device(0);
+					if (dev == NULL) {
+						cout << "R200 Camera not found!" << endl;
+					}
+					else if (!RS200_Initialize(dev)) {
+						cout << "	Using device 0, an " << dev->get_name() << endl;
+						cout << "	Serial number: " << dev->get_serial() << endl;
+						cout << "	Firmware version: " << dev->get_firmware_version() << endl;
+						cout << "Initialize Complete" << endl;
+					}
+					run_cam = true;
 				}
-				run_cam = true;
 			}
 			else {
+				cout << "Camera stopped" << endl;
 				dev->stop();
 				run_cam = false;
 			}
 		}
 		cvui::update();
+		imshow("Raw Depth Image", frameDepth);
 		imshow(MAIN_WINDOW_NAME, frame);
 
 		//Awaiting key input to escape || Step Look
 		if (waitKey(1) == 27) break;
 		if (waitKey(1) == 's')step_look = !step_look;
+		if (waitKey(1) == 'm')cout<<" Hand area : " << hand_area <<endl;
+
 		if (step_look)waitKey(0);
 
 	}
