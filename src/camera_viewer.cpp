@@ -172,12 +172,12 @@ int main() {
 		
 		//THRESHOLDING
 		if (en_threshold) {
-			threshold(processed, processed, 180, 250, CV_THRESH_BINARY);
+			threshold(processed, processed, 180, 254, CV_THRESH_BINARY);
 		}
 
-		//Dilation
+		//Dilation After Thrreshold
 		if (en_dilation_af_threshold) {
-			color_replace = Dilation(color_replace, 5, 2, "MORPH CROSS");
+			processed = Dilation(processed, 5, 2, "MORPH CROSS");
 		}
 
 		//Temporary Drawing
@@ -264,6 +264,7 @@ int main() {
 				}
 			}
 		}
+
 		//Micro Position Item Checking
 		if (pos_item_check) {
 			//Crop each item segmentation
