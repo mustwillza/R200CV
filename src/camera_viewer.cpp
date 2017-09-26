@@ -16,7 +16,7 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 #define MAIN_WINDOW_NAME "Assembly Project Monitoring System : FIBO HIT-UTAS SANWA"
 
 #include <algorithm>
-
+#include <time.h>
 // include the librealsense C++ header file
 #include <librealsense/rs.hpp>
 
@@ -51,6 +51,10 @@ VideoCapture rgbRead;
 VideoCapture depthRead;
 int main() {
 	//Create GUI 
+	clock_t this_time = clock();
+	clock_t last_time = this_time;
+	double time_counter = 0;
+
 	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
 	cv::namedWindow(MAIN_WINDOW_NAME);
 	cvui::init(MAIN_WINDOW_NAME);
@@ -62,6 +66,9 @@ int main() {
 	setMouseCallback("Raw Depth Image", clickToRead, 0);
 	//Start Update System (Loop)
 	for (;;) {
+		this_time = clock();
+		time_counter += (double)(this_time - last_time);
+
 		int hand_area = 0;
 		//Wait for next frame ready!
 		Mat color(Size(frameWidth, frameHeight), CV_8UC3,Mat::AUTO_STEP);
@@ -302,6 +309,7 @@ int main() {
 		cvui::checkbox(frame, 30, 300, "Step (Press key to show image)", &step_look);
 		cvui::checkbox(frame, 30, 200, "Color - Contour", &en_subtract);
 		cvui::checkbox(frame, 30, 220, "Invert(Color-Contour)", &en_addition);
+		cvui::checkbox(frame, 30, 520, "Beep after hand press", &en_handpress);
 
 
 		//Display Multi Image in single window
@@ -421,6 +429,17 @@ int main() {
 		cvui::update();
 		imshow("Raw Depth Image", frameDepth);
 		imshow(MAIN_WINDOW_NAME, frame);
+
+		if (en_handpress) {
+			if (raw_depth.at<uchar>(Point(609, 430)) >= 167 && raw_depth.at<uchar>(Point(609, 430)) <= 169)
+			{
+				if (time_counter > (double)(BEEP_AF_SECONDS * CLOCKS_PER_SEC)) {
+					cout << '\a';
+					last_time = this_time;
+				}
+			}
+		}
+
 
 		//Awaiting key input to escape || Step Look
 		if (waitKey(1) == 27) break;

@@ -28,6 +28,7 @@ int y_roi = 50;
 int width_roi = 290;
 int height_roi = 400;
 
+const int BEEP_AF_SECONDS = 1;
 
 //Enable Filter/Feature
 bool en_gaussian = false;
@@ -48,6 +49,7 @@ bool en_addition = false;
 bool record = false;
 bool playback = false;
 bool run_cam = false;
+bool en_handpress = false;
 
 // Setting for realsense device
 const int frameHeight = 480;
