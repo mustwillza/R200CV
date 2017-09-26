@@ -50,6 +50,10 @@ bool record = false;
 bool playback = false;
 bool run_cam = false;
 bool en_handpress = false;
+bool pos_item_check = false;
+bool en_pos_item_train = false;
+bool en_pos_item_class = false;
+bool en_dilation_af_threshold = false;
 
 // Setting for realsense device
 const int frameHeight = 480;
@@ -144,3 +148,49 @@ Mat getDepthImage(rs::device * dev) {
 	return frameDepth;
 }
 
+int BlobDetect(Mat depth_original_crop,Mat* drawing,float min_thresh,float max_thresh,float min_area) {
+	// Setup SimpleBlobDetector parameters.
+	SimpleBlobDetector::Params params;
+
+	// Change thresholds
+	params.minThreshold = min_thresh;
+	params.maxThreshold = max_thresh;
+
+	// Filter by Area.
+	params.filterByArea = true;
+	params.minArea = min_area;
+
+	// Filter by Circularity
+	params.filterByCircularity = true;
+	params.minCircularity = (float)0.1;
+
+	// Filter by Convexity
+	params.filterByConvexity = true;
+	params.minConvexity = (float)0.1;
+
+	// Filter by Inertia
+	params.filterByInertia = true;
+	params.minInertiaRatio = (float)0.01;
+	Ptr<SimpleBlobDetector> b_detector = SimpleBlobDetector::create(params);
+	// Storage for blobs
+	vector<KeyPoint> keypoints;
+
+	// Detect blobs
+	b_detector->detect(depth_original_crop, keypoints);
+
+	// Draw detected blobs as red circles.
+	// DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
+	// the size of the circle corresponds to the size of blob
+
+	Mat im_with_keypoints;
+	drawKeypoints(*drawing, keypoints, *drawing, Scalar(255, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+	//cout << "////////////Blob Detection/////////////" << endl;
+	short blob_counter = 0;
+	for (std::vector<cv::KeyPoint>::iterator blobIterator = keypoints.begin(); blobIterator != keypoints.end(); blobIterator++) {
+		//std::cout << "size of blob is: " << blobIterator->size << std::endl;
+		//std::cout << "point is at: " << blobIterator->pt.x << " " << blobIterator->pt.y << std::endl;
+		blob_counter++;
+	}
+	//cout << "////////End Blob Detection/////////////" << endl << endl;
+	return blob_counter;
+}

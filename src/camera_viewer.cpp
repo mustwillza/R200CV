@@ -54,7 +54,9 @@ int main() {
 	clock_t this_time = clock();
 	clock_t last_time = this_time;
 	double time_counter = 0;
-
+	char* record_label = "Record";
+	char* playback_label = "Playback";
+	char* r200_label = "R200 Connect";
 	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
 	cv::namedWindow(MAIN_WINDOW_NAME);
 	cvui::init(MAIN_WINDOW_NAME);
@@ -88,6 +90,7 @@ int main() {
 					if (color.empty()) {
 						cout << "End of video" << endl;
 						playback = false;
+						playback_label = "Playback";
 						continue;
 					}
 				}
@@ -123,8 +126,9 @@ int main() {
 		Rect roi_depth(x_roi, y_roi, width_roi, height_roi);
 
 		Mat color_replace = color(roi).clone();
+		Mat color_original_crop = color(roi).clone();
 		processed = frameDepth(roi_depth).clone();
-		Mat preprocess = frameDepth(roi_depth).clone();
+		Mat depth_original_crop = frameDepth(roi_depth).clone();
 		raw_depth = frameDepth.clone();
 
 		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
@@ -157,18 +161,25 @@ int main() {
 
 		//Dilasion
 		if (en_dilation) {
-			processed = Erosion(processed, 3, 2, "MORPH CROSS");
+			processed = Dilation(processed, 3, 2, "MORPH CROSS");
 		}
 
 		//Erosion
 		if (en_erosion) {
-			processed = Dilation(processed, 3, 2, "MORPH CROSS");
+			processed = Erosion(processed, 3, 2, "MORPH CROSS");
 		}
+
 		
 		//THRESHOLDING
 		if (en_threshold) {
 			threshold(processed, processed, 180, 250, CV_THRESH_BINARY);
 		}
+
+		//Dilation
+		if (en_dilation_af_threshold) {
+			color_replace = Dilation(color_replace, 5, 2, "MORPH CROSS");
+		}
+
 		//Temporary Drawing
 		Mat drawing;
 		cvtColor(processed, drawing, cv::COLOR_GRAY2BGR);
@@ -209,7 +220,7 @@ int main() {
 					min = area;
 				}
 			}
-			cout << "Max Area : " << max << "\t Num Max : " << num_max << endl;
+			//cout << "Max Area : " << max << "\t Num Max : " << num_max << endl;
 			for (int i = 0; i < contours.size(); i++)
 			{
 				approxPolyDP(Mat(contours[i]), contours[i], 3, true);
@@ -230,48 +241,7 @@ int main() {
 		//Blob Detector
 		if (en_blob) {
 			/// BLOB Detection
-			// Setup SimpleBlobDetector parameters.
-			SimpleBlobDetector::Params params;
-
-			// Change thresholds
-			params.minThreshold = 180;
-			params.maxThreshold = 250;
-
-			// Filter by Area.
-			params.filterByArea = true;
-			params.minArea = 10;
-
-			// Filter by Circularity
-			params.filterByCircularity = true;
-			params.minCircularity = 0.1;
-
-			// Filter by Convexity
-			params.filterByConvexity = true;
-			params.minConvexity = 0.2;
-
-			// Filter by Inertia
-			params.filterByInertia = true;
-			params.minInertiaRatio = 0.01;
-			Ptr<SimpleBlobDetector> b_detector = SimpleBlobDetector::create(params);
-			// Storage for blobs
-			vector<KeyPoint> keypoints;
-
-			// Detect blobs
-			b_detector->detect(preprocess, keypoints);
-
-			// Draw detected blobs as red circles.
-			// DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
-			// the size of the circle corresponds to the size of blob
-
-			Mat im_with_keypoints;
-			drawKeypoints(drawing, keypoints, drawing, Scalar(255, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-			cout << "////////////Blob Detection/////////////" << endl;
-			for (std::vector<cv::KeyPoint>::iterator blobIterator = keypoints.begin(); blobIterator != keypoints.end(); blobIterator++) {
-				std::cout << "size of blob is: " << blobIterator->size << std::endl;
-				std::cout << "point is at: " << blobIterator->pt.x << " " << blobIterator->pt.y << std::endl;
-			}
-			cout << "////////End Blob Detection/////////////" << endl << endl;
-
+			BlobDetect(depth_original_crop, &drawing,180,250,10);
 		}
 		
 		//Subtraction color image with threshold
@@ -294,6 +264,27 @@ int main() {
 				}
 			}
 		}
+		//Micro Position Item Checking
+		if (pos_item_check) {
+			//Crop each item segmentation
+
+			//Wheel counter
+			Rect crop(0,180, 80, 140);
+			Mat tmp = color_original_crop(crop).clone();
+			Mat display = tmp.clone();
+
+			Rect roi_pos(Rect(200,300, tmp.cols,tmp.rows));
+			display.copyTo(frame(roi_pos));
+
+			rectangle(color_replace, cv::Point2f(0, 180), cv::Point2f(80, 320), cv::Scalar(255, 100, 100));
+
+			if (en_pos_item_train) {
+				cvtColor(tmp, tmp, cv::COLOR_BGR2GRAY);
+				cout <<"Blob Size ::" << BlobDetect(tmp, &tmp,100,255,12.5) << endl;
+			}
+			imshow("Object Segment Image",tmp);
+
+		}
 		
 		//GUI Window
 		frame = cv::Scalar(49, 52, 49);
@@ -309,9 +300,15 @@ int main() {
 		cvui::checkbox(frame, 30, 300, "Step (Press key to show image)", &step_look);
 		cvui::checkbox(frame, 30, 200, "Color - Contour", &en_subtract);
 		cvui::checkbox(frame, 30, 220, "Invert(Color-Contour)", &en_addition);
+		cvui::checkbox(frame, 30, 240, "Dilate Af/Thresh", &en_dilation_af_threshold);
+
+		
 		cvui::checkbox(frame, 30, 520, "Beep after hand press", &en_handpress);
-
-
+		cvui::checkbox(frame, 30, 540, "Position Item Enable (Mode)", &pos_item_check);
+		cvui::checkbox(frame, 30, 560, "Position Item Train", &en_pos_item_train);
+		cvui::checkbox(frame, 30, 580, "Position Item Classify", &en_pos_item_class);
+		
+		
 		//Display Multi Image in single window
 		try
 		{
@@ -337,7 +334,7 @@ int main() {
 			std::cout << "exception caught: " << err_msg << std::endl;
 		}
 
-		if (cvui::button(frame, 50, 350, "Record")) {
+		if (cvui::button(frame, 50, 350, record_label)) {
 			record = !record;
 			if (record == true) {
 				std::cout << "Record! : " << record << std::endl;
@@ -351,6 +348,7 @@ int main() {
 
 				}
 				if (depthWrite.isOpened()) {
+					record_label = "Stop Record";
 					cout << "depthVid.mkv Ready!" << endl;
 				}
 				else {
@@ -362,6 +360,7 @@ int main() {
 				std::cout << "Stop Record! : " << record << std::endl;
 				rgbWrite.release();
 				depthWrite.release();
+				record_label = "Record";
 			}
 
 		}
@@ -381,9 +380,10 @@ int main() {
 			}
 		}
 		
-		if (cvui::button(frame, 50, 400, "Playback")) {
+		if (cvui::button(frame, 50, 400, playback_label)) {
 			playback = !playback;
 			if (playback) {
+				playback_label = "Stop Playback";
 				cout << "Video Playback!" << endl;
 				if (rgbRead.open("ColorVid.mkv")) {
 					cout << "Playback ColorVid Ready" << endl;
@@ -394,6 +394,7 @@ int main() {
 				}
 			}
 			else {
+				playback_label = "Playback";
 				cout << "Playback stopped" << endl;
 				rgbRead.release();
 				depthRead.release();
@@ -401,7 +402,7 @@ int main() {
 		}
 		rs::log_to_console(rs::log_severity::warn);
 
-		if (cvui::button(frame, 50, 450, "R200 Connect")) {
+		if (cvui::button(frame, 50, 450, r200_label)) {
 			if (!run_cam) {
 				static rs::context ctx;
 
@@ -416,11 +417,13 @@ int main() {
 						cout << "	Serial number: " << dev->get_serial() << endl;
 						cout << "	Firmware version: " << dev->get_firmware_version() << endl;
 						cout << "Initialize Complete" << endl;
+						run_cam = true;
+						r200_label = "R200 Disconnect";
 					}
-					run_cam = true;
 				}
 			}
 			else {
+				r200_label = "R200 Connect";
 				cout << "Camera stopped" << endl;
 				dev->stop();
 				run_cam = false;
