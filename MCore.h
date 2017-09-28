@@ -54,6 +54,8 @@ bool pos_item_check = false;
 bool en_pos_item_train = false;
 bool en_pos_item_class = false;
 bool en_dilation_af_threshold = false;
+bool en_black_pixel_calc = false;
+bool en_pos_hand = false;
 
 // Setting for realsense device
 const int frameHeight = 480;
@@ -132,9 +134,12 @@ int RS200_Initialize(rs::device * dev) {
 Mat getDepthImage(rs::device * dev) {
 	Mat ir1(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared), Mat::AUTO_STEP);
 	Mat ir2(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared2), Mat::AUTO_STEP);
-	// Creating OpenCV matrix from infrared image (Depth Image Generate)
-	Ptr<StereoBM> sbm = StereoBM::create(16 * 4, 13);
+	//Mat ir1(Size(frameWidth, frameHeight), CV_8UC1);
+	//Mat ir2(Size(frameWidth, frameHeight), CV_8UC1);
 
+	// Creating OpenCV matrix from infrared image (Depth Image Generate)
+
+	Ptr<StereoBM> sbm = StereoBM::create(64, 13);
 	Mat depth(Size(frameWidth, frameHeight), CV_16UC1), frameDepth(Size(frameWidth, frameHeight), CV_8UC1);
 
 	sbm->compute(ir1, ir2, depth);
@@ -193,4 +198,16 @@ int BlobDetect(Mat depth_original_crop,Mat* drawing,float min_thresh,float max_t
 	}
 	//cout << "////////End Blob Detection/////////////" << endl << endl;
 	return blob_counter;
+}
+
+int depth_pixel_counter(Mat tmp_d, int thres_min,int thres_max) {
+	int px_counter = 0;
+	for (int x = 0; x < tmp_d.rows; x++) {
+		for (int y = 0; y < tmp_d.cols; y++) {
+			if (tmp_d.at<uchar>(Point(x, y)) > thres_min,tmp_d.at<uchar>(Point(x,y)) < thres_max) {
+				px_counter++;
+			}
+		}
+	}
+	return px_counter;
 }

@@ -49,6 +49,8 @@ VideoWriter rgbWrite; //("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1')
 VideoWriter depthWrite;//("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), false);
 VideoCapture rgbRead;
 VideoCapture depthRead;
+int old_depth_pixel[3] = { -1 };
+short current_work_state = 0;
 int main() {
 	//Create GUI 
 	clock_t this_time = clock();
@@ -57,8 +59,12 @@ int main() {
 	char* record_label = "Record";
 	char* playback_label = "Playback";
 	char* r200_label = "R200 Connect";
-	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
-	cv::namedWindow(MAIN_WINDOW_NAME);
+	char* status_label = "None";
+	cvflann::StartStopTimer state_timer;
+	state_timer.start();
+	
+	Mat frame = cv::Mat(650, 1000, CV_8UC3);
+	namedWindow(MAIN_WINDOW_NAME);
 	cvui::init(MAIN_WINDOW_NAME);
 
 	cout << "Initialization..." << endl;
@@ -210,6 +216,7 @@ int main() {
 			vector<float>radius(contours.size());
 			double min=1000, max=0;
 			short num_max;
+			cout << "Contours : " << contours.size() << endl;
 			for (int i = 0; i < contours.size(); i++) {
 				area = contourArea(contours[i]);
 				if (area > max) {
@@ -219,16 +226,19 @@ int main() {
 				if (area < min) {
 					min = area;
 				}
+				cout << i << "\t : " << area << endl;
 			}
+			cout << "//////////////////////" << endl;
 			//cout << "Max Area : " << max << "\t Num Max : " << num_max << endl;
 			for (int i = 0; i < contours.size(); i++)
 			{
 				approxPolyDP(Mat(contours[i]), contours[i], 3, true);
 				area = contourArea(contours[i]);
 				if (i == num_max) {
-					boundRect[i] = boundingRect(Mat(contours[i]));
-					minEnclosingCircle((Mat)contours[i], center[i], radius[i]);
+
 				}
+				boundRect[i] = boundingRect(Mat(contours[i]));
+				minEnclosingCircle((Mat)contours[i], center[i], radius[i]);
 				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 				rectangle(drawing, boundRect[i].tl(), boundRect[i].br(), color, 2, 8, 0);
 				drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
@@ -254,39 +264,34 @@ int main() {
 								hand_area++;
 							}
 							else {
-								color_replace.at<Vec3b>(Point(y, x)) = 0;
+								color_replace.at<Vec3b>(Point(y, x)) = Vec3b(0, 255, 0);
 							}
 						}else if (processed.at<uchar>(Point(y, x)) >= 100) {
-							color_replace.at<Vec3b>(Point(y, x)) = 0;
+							color_replace.at<Vec3b>(Point(y, x)) = Vec3b(0,255,0);
 							hand_area++;
 						}
 					}
 				}
 			}
 		}
-
-		//Micro Position Item Checking
-		if (pos_item_check) {
-			//Crop each item segmentation
-
-			//Wheel counter
-			Rect crop(0,180, 80, 140);
-			Mat tmp = color_original_crop(crop).clone();
-			Mat display = tmp.clone();
-
-			Rect roi_pos(Rect(200,300, tmp.cols,tmp.rows));
-			display.copyTo(frame(roi_pos));
-
-			rectangle(color_replace, cv::Point2f(0, 180), cv::Point2f(80, 320), cv::Scalar(255, 100, 100));
-
-			if (en_pos_item_train) {
-				cvtColor(tmp, tmp, cv::COLOR_BGR2GRAY);
-				cout <<"Blob Size ::" << BlobDetect(tmp, &tmp,100,255,12.5) << endl;
-			}
-			imshow("Object Segment Image",tmp);
-
+		//cout << "Pixel : (100,100) Color : " << color_replace.at<Vec3b>(Point(100, 100))[0] << "," << color_replace.at<Vec3b>(Point(100, 100))[1] << "," << color_replace.at<Vec3b>(Point(100, 100))[2] << endl;;
+		//Calculate Black pixel number
+		if (en_black_pixel_calc) {
+			int counter = 0;
+			for (int y = 0; y < color_replace.cols; y++) {
+				for (int x = 0; x < color_replace.rows; x++) {
+					if (color_replace.at<Vec3b>(Point(y, x))[0] <= 20) {
+						if (color_replace.at<Vec3b>(Point(y, x))[1]<= 20) {
+							if (color_replace.at<Vec3b>(Point(y, x))[2]<= 20) {
+								counter++;
+							}
+						}
+					}
+				}
+			 }
+			cout << "Black Pixel in area below 20 : " << counter << endl;
 		}
-		
+
 		//GUI Window
 		frame = cv::Scalar(49, 52, 49);
 		cvui::window(frame, 15, 10, 180, 600, "Controller");
@@ -308,8 +313,78 @@ int main() {
 		cvui::checkbox(frame, 30, 540, "Position Item Enable (Mode)", &pos_item_check);
 		cvui::checkbox(frame, 30, 560, "Position Item Train", &en_pos_item_train);
 		cvui::checkbox(frame, 30, 580, "Position Item Classify", &en_pos_item_class);
-		
-		
+		cvui::checkbox(frame, 30, 600, "Black pixel calc", &en_black_pixel_calc);
+		cvui::checkbox(frame, 30, 620, "Position Hand Tracking", &en_pos_hand);
+
+		//Micro Position Item Checking
+		if (pos_item_check) {
+			//Crop each item segmentation
+
+			int x1=0, x2=0, x3=0,y1=250,y2=150,y3=60;
+			int width = 80, height = 80;
+			//Wheel counter
+			Rect crop(x1, y1, width, height);
+			Mat tmp = color_original_crop(crop).clone();
+			Mat tmp2 = color_original_crop(Rect(x2, y2, width, height)).clone();
+			Mat tmp3 = color_original_crop(Rect(x3, y3, width, height)).clone();
+			Mat tmp_d = depth_original_crop(crop).clone();
+			Mat tmp_d2 = depth_original_crop(Rect(x2, y2, width, height)).clone();
+			Mat tmp_d3 = depth_original_crop(Rect(x3, y3, width, height)).clone();
+
+			rectangle(color_replace, cv::Point2f(x1, y1), cv::Point2f(x1+width, y1+height), cv::Scalar(255, 100, 100));
+			rectangle(color_replace, cv::Point2f(x2, y2), cv::Point2f(x2+width, y2+height), cv::Scalar(255, 100, 100));
+			rectangle(color_replace, cv::Point2f(x3, y3), cv::Point2f(x3 + width, y3 + height), cv::Scalar(255, 100, 100));
+
+			if (en_pos_item_train) {
+				int obj[3];
+				obj[0] = depth_pixel_counter(tmp_d, 160, 170);
+				obj[1] = depth_pixel_counter(tmp_d2, 160, 170);
+				obj[2] = depth_pixel_counter(tmp_d3, 160, 170);
+				//for (int i = 0; i < 3; i++) {
+				//	cout << "\tObj " << i << " : " << abs(obj[i] - old_depth_pixel[i]);
+				//}
+				//cout << endl;
+				if (old_depth_pixel[0] != -1) {
+					if (abs(obj[0] - old_depth_pixel[0] > 200)) {
+						current_work_state = 1;
+						state_timer.reset();
+						state_timer.start();
+					}
+					if (abs(obj[1] - old_depth_pixel[1] > 200)) {
+						current_work_state = 2;
+						state_timer.reset();
+						state_timer.start();
+
+					}if (abs(obj[2] - old_depth_pixel[2] > 200)) {
+						current_work_state = 3;
+						state_timer.reset();
+						state_timer.start();
+					}
+				}
+
+				old_depth_pixel[0] = obj[0];
+				old_depth_pixel[1] = obj[1];
+				old_depth_pixel[2] = obj[2];
+
+			}
+			int offset_pos_x = 200;
+			int offset_pos_y = 520;
+			Rect roi3(Rect(offset_pos_x, offset_pos_y, tmp.cols, tmp.rows));
+			Rect roi4(Rect(offset_pos_x + width, offset_pos_y, tmp.cols, tmp.rows));
+			Rect roi5(Rect(offset_pos_x + width + width, offset_pos_y, tmp.cols, tmp.rows));
+			imshow("Crop Depth", depth_original_crop);
+			cvtColor(tmp_d, tmp_d, cv::COLOR_GRAY2BGR);
+			cvtColor(tmp_d2, tmp_d2, cv::COLOR_GRAY2BGR);
+			cvtColor(tmp_d3, tmp_d3, cv::COLOR_GRAY2BGR);
+
+			tmp_d.copyTo(frame(roi3));
+			tmp_d2.copyTo(frame(roi4));
+			tmp_d3.copyTo(frame(roi5));
+
+			//imshow("Object Segment Image", tmp);
+
+		}
+
 		//Display Multi Image in single window
 		try
 		{
@@ -430,6 +505,8 @@ int main() {
 				run_cam = false;
 			}
 		}
+		cvui::text(frame, 500, 500, status_label);
+
 		cvui::update();
 		imshow("Raw Depth Image", frameDepth);
 		imshow(MAIN_WINDOW_NAME, frame);
@@ -443,8 +520,24 @@ int main() {
 				}
 			}
 		}
-
-
+		
+		switch (current_work_state) {
+		case 0:
+			status_label = "None";
+			break;
+		case 1:
+			status_label = "First Wheel Counter";
+			break;
+		case 2:
+			status_label = "2-3 Wheel Counter";
+			break;
+		case 3:
+			status_label = "Last Wheel Counter";
+			break;
+		}
+		if (state_timer.value > 20) {
+			current_work_state = 0;
+		}
 		//Awaiting key input to escape || Step Look
 		if (waitKey(1) == 27) break;
 		if (waitKey(1) == 's')step_look = !step_look;
