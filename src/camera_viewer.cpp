@@ -17,6 +17,7 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 
 #include <algorithm>
 #include <time.h>
+#include <process.h>
 // include the librealsense C++ header file
 #include <librealsense/rs.hpp>
 
@@ -52,9 +53,10 @@ VideoCapture depthRead;
 int old_depth_pixel[3] = { -1 };
 short current_work_state = 0;
 int main() {
+	//_beginthread(&tick_timer, 0, NULL);
 	//Create GUI 
-	clock_t this_time = clock();
-	clock_t last_time = this_time;
+	clock_t current_time = clock();
+	clock_t last_time = current_time;
 	double time_counter = 0;
 	char* record_label = "Record";
 	char* playback_label = "Playback";
@@ -74,8 +76,7 @@ int main() {
 	setMouseCallback("Raw Depth Image", clickToRead, 0);
 	//Start Update System (Loop)
 	for (;;) {
-		this_time = clock();
-		time_counter += (double)(this_time - last_time);
+		clock_t current_time = clock();
 
 		int hand_area = 0;
 		//Wait for next frame ready!
@@ -178,7 +179,7 @@ int main() {
 		
 		//THRESHOLDING
 		if (en_threshold) {
-			threshold(processed, processed, 180, 254, CV_THRESH_BINARY);
+			threshold(processed, processed, 170, 254, CV_THRESH_BINARY);
 		}
 
 		//Dilation After Thrreshold
@@ -336,6 +337,20 @@ int main() {
 			rectangle(color_replace, cv::Point2f(x3, y3), cv::Point2f(x3 + width, y3 + height), cv::Scalar(255, 100, 100));
 
 			if (en_pos_item_train) {
+				int hand_depth_detect = depth_pixel_counter(processed, 100, 190);
+				bool hand = false;
+				if (hand_depth_detect < 115000) {
+					hand = true;
+					if (current_work_state == 0) {
+						current_work_state = 1;
+					}
+
+				}
+				else {
+					hand = false;
+					current_work_state = 0;
+				}
+
 				int obj[3];
 				obj[0] = depth_pixel_counter(tmp_d, 160, 170);
 				obj[1] = depth_pixel_counter(tmp_d2, 160, 170);
@@ -344,22 +359,22 @@ int main() {
 				//	cout << "\tObj " << i << " : " << abs(obj[i] - old_depth_pixel[i]);
 				//}
 				//cout << endl;
-				if (old_depth_pixel[0] != -1) {
-					if (abs(obj[0] - old_depth_pixel[0] > 200)) {
-						current_work_state = 1;
-						state_timer.reset();
-						state_timer.start();
-					}
-					if (abs(obj[1] - old_depth_pixel[1] > 200)) {
-						current_work_state = 2;
-						state_timer.reset();
-						state_timer.start();
+				if (old_depth_pixel[0] != -1 && hand) {
+					double c_timer = state_timer.value;
 
-					}if (abs(obj[2] - old_depth_pixel[2] > 200)) {
+					if (abs(obj[0] - old_depth_pixel[0] > 200)) {
+						current_work_state = 2;
+						last_time = current_time;
+					}else if (abs(obj[1] - old_depth_pixel[1] > 200)) {
 						current_work_state = 3;
-						state_timer.reset();
-						state_timer.start();
+						last_time = current_time;
+
+
+					}else if (abs(obj[2] - old_depth_pixel[2] > 200)) {
+						current_work_state = 4;
+						last_time = current_time;
 					}
+
 				}
 
 				old_depth_pixel[0] = obj[0];
@@ -510,7 +525,7 @@ int main() {
 		cvui::update();
 		imshow("Raw Depth Image", frameDepth);
 		imshow(MAIN_WINDOW_NAME, frame);
-
+		/*
 		if (en_handpress) {
 			if (raw_depth.at<uchar>(Point(609, 430)) >= 167 && raw_depth.at<uchar>(Point(609, 430)) <= 169)
 			{
@@ -520,22 +535,28 @@ int main() {
 				}
 			}
 		}
+		*/
 		
 		switch (current_work_state) {
 		case 0:
 			status_label = "None";
 			break;
 		case 1:
-			status_label = "First Wheel Counter";
+			status_label = "Start";
 			break;
 		case 2:
-			status_label = "2-3 Wheel Counter";
+			status_label = "First Wheel Counter";
 			break;
 		case 3:
+			status_label = "2-3 Wheel Counter";
+			break;
+		case 4:
 			status_label = "Last Wheel Counter";
 			break;
 		}
-		if (state_timer.value > 20) {
+		if (time_counter = (double)(current_time - last_time)/CLOCKS_PER_SEC > 20) {
+			cout << "Over 20 Seconds Idle" << endl;
+			last_time = current_time;
 			current_work_state = 0;
 		}
 		//Awaiting key input to escape || Step Look
@@ -546,7 +567,7 @@ int main() {
 		if (step_look)waitKey(0);
 
 	}
-
+	//_endthread();
 	return 0;
 
 }

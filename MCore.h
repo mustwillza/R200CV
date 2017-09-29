@@ -211,3 +211,7 @@ int depth_pixel_counter(Mat tmp_d, int thres_min,int thres_max) {
 	}
 	return px_counter;
 }
+
+void tick_timer(void *Args) {
+
+}
