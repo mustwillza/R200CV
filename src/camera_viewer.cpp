@@ -14,6 +14,9 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 //#pragma comment(linker, "/SUBSYSTEM:CONSOLE /ENTRY:wWinMainCRTStartup")
 
 #define MAIN_WINDOW_NAME "Assembly Project Monitoring System : FIBO HIT-UTAS SANWA"
+// include CV UI header file
+#include "cvui.h"
+
 
 #include <algorithm>
 #include <time.h>
@@ -21,38 +24,65 @@ wWinMainCRTStartup => calls wWinMain(), as above but the Unicode version
 // include the librealsense C++ header file
 #include <librealsense/rs.hpp>
 
-// include CV UI header file
-#include "cvui.h"
 
-//include main Resoruce
+
+//include main Resoruceww
 #include "resource.h"
 //include Core function file
 #include "MCore.h"
 // include OpenCV header file
 #include <opencv2/opencv.hpp>
 #include "opencv2/features2d.hpp"
-using namespace std;
-using namespace cv;
 
-RNG rng(12345);
-Mat processed;
-Mat raw_depth;
+// include SerialPort
+#include "SerialPort.h"
+char* portName = "COM4";
+
+#define MAX_DATA_LENGTH 255
+
+char incomingData[MAX_DATA_LENGTH];
+
+
+using namespace std;
+
+cv::RNG rng(12345);
+cv::Mat processed;
+cv::Mat raw_depth;
 
 void clickToRead(int event, int x, int y, int, void*)
 {
 	if (event != CV_EVENT_LBUTTONDOWN)
 		return;
-	Point pt = Point(x, y);
+	cv::Point pt = cv::Point(x, y);
 	cout << "x=" << pt.x << "\t y=" << pt.y << "\t value=" << (int)raw_depth.at<uchar>(y, x) << "\n";
 }
 
-VideoWriter rgbWrite; //("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), true);
-VideoWriter depthWrite;//("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), false);
-VideoCapture rgbRead;
-VideoCapture depthRead;
+cv::VideoWriter rgbWrite; //("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, cv::Size(frameWidth, frameHeight), true);
+cv::VideoWriter depthWrite;//("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, cv::Size(frameWidth, frameHeight), false);
+cv::VideoCapture rgbRead;
+cv::VideoCapture depthRead;
 int old_depth_pixel[3] = { -1 };
 short current_work_state = 0;
+
+//Prepare Serialport object
+SerialPort *serial_bt200;
+void exampleReceiveData(void)
+{
+	int readResult = serial_bt200->readSerialPort(incomingData, MAX_DATA_LENGTH);
+	if (readResult == 0) {
+		strcpy(incomingData, "");
+	}
+	else {
+		printf("%s", incomingData);
+		strcpy(incomingData, "");
+	}
+	Sleep(1);
+}
 int main() {
+	serial_bt200 = new SerialPort("COM1");
+	if (serial_bt200->isConnected()) {
+		std::cout << "Connection established at port " << portName << endl;
+	}
 	//_beginthread(&tick_timer, 0, NULL);
 	//Create GUI 
 	clock_t current_time = clock();
@@ -62,27 +92,28 @@ int main() {
 	char* playback_label = "Playback";
 	char* r200_label = "R200 Connect";
 	char* status_label = "None";
-	cvflann::StartStopTimer state_timer;
-	state_timer.start();
+	char count_time[30];
+
 	
-	Mat frame = cv::Mat(650, 1000, CV_8UC3);
-	namedWindow(MAIN_WINDOW_NAME);
+	cv::Mat frame = cv::Mat(650, 1000, CV_8UC3);
+	cv::namedWindow(MAIN_WINDOW_NAME);
 	cvui::init(MAIN_WINDOW_NAME);
 
 	cout << "Initialization..." << endl;
 	rs::device * dev;
 	//Click to read depth value
 	cv::namedWindow("Raw Depth Image");
-	setMouseCallback("Raw Depth Image", clickToRead, 0);
+	cv::setMouseCallback("Raw Depth Image", clickToRead, 0);
 	//Start Update System (Loop)
 	for (;;) {
+		if (serial_bt200->isConnected()) exampleReceiveData();
 		clock_t current_time = clock();
-
+		sprintf_s(count_time, "Time : %d", (current_time - last_time)/CLOCKS_PER_SEC);
 		int hand_area = 0;
 		//Wait for next frame ready!
-		Mat color(Size(frameWidth, frameHeight), CV_8UC3,Mat::AUTO_STEP);
+		cv::Mat color(cv::Size(frameWidth, frameHeight), CV_8UC3,cv::Mat::AUTO_STEP);
 
-		Mat frameDepth(Size(frameWidth, frameHeight),CV_8UC1);
+		cv::Mat frameDepth(cv::Size(frameWidth, frameHeight),CV_8UC1);
 		//Get Image data from R200 Camera
 		if (!playback && run_cam) {
 			dev->wait_for_frames();
@@ -113,7 +144,7 @@ int main() {
 			}
 			if (depthRead.isOpened()) {
 				try {
-					Mat tmp;
+					cv::Mat tmp;
 					depthRead.read(tmp);
 					cvtColor(tmp, frameDepth, cv::COLOR_RGB2GRAY);
 				}
@@ -129,21 +160,21 @@ int main() {
 			}
 		}
 		//-- CROP
-		Rect roi(x_roi-32, y_roi-6, width_roi, height_roi);
-		Rect roi_depth(x_roi, y_roi, width_roi, height_roi);
+		cv::Rect roi(x_roi-32, y_roi-6, width_roi, height_roi);
+		cv::Rect roi_depth(x_roi, y_roi, width_roi, height_roi);
 
-		Mat color_replace = color(roi).clone();
-		Mat color_original_crop = color(roi).clone();
+		cv::Mat color_replace = color(roi).clone();
+		cv::Mat color_original_crop = color(roi).clone();
 		processed = frameDepth(roi_depth).clone();
-		Mat depth_original_crop = frameDepth(roi_depth).clone();
+		cv::Mat depth_original_crop = frameDepth(roi_depth).clone();
 		raw_depth = frameDepth.clone();
 
-		applyColorMap(frameDepth, frameDepth, COLORMAP_JET);
+		applyColorMap(frameDepth, frameDepth, cv::COLORMAP_JET);
 
 		//Draw Crop Area
-		Mat color2 = color.clone();
-		rectangle(color2, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
-		rectangle(frameDepth, cv::Point2f(x_roi, y_roi), cv::Point2f(width_roi + x_roi, height_roi + y_roi), cv::Scalar(255, 0, 0));
+		cv::Mat color2 = color.clone();
+		rectangle(color2, cv::Point2f((float)x_roi, (float)y_roi), cv::Point2f((float)width_roi + x_roi, (float)height_roi + y_roi), cv::Scalar(255, 0, 0));
+		rectangle(frameDepth, cv::Point2f((float)x_roi, (float)y_roi), cv::Point2f((float)width_roi + x_roi, (float)height_roi + y_roi), cv::Scalar(255, 0, 0));
 
 
 
@@ -188,8 +219,8 @@ int main() {
 		}
 
 		//Temporary Drawing
-		Mat drawing;
-		cvtColor(processed, drawing, cv::COLOR_GRAY2BGR);
+		cv::Mat drawing;
+		cv::cvtColor(processed, drawing, cv::COLOR_GRAY2BGR);
 
 		///////////////////////////////////////////
 		////////     Feature Extraction    ////////
@@ -198,22 +229,22 @@ int main() {
 		//Contour
 		if (en_contour) {
 			/////////////////////CANNY EDGE DETECTOR/////////////
-			Mat canny_output;
-			vector<vector<Point> > contours;
-			vector<Vec4i> hierarchy;
+			cv::Mat canny_output;
+			vector<vector<cv::Point> > contours;
+			vector<cv::Vec4i> hierarchy;
 			/// Detect edges using canny
 			Canny(processed.clone(), canny_output, 100, 100 * 2, 3);
 			/// Find contours
-			findContours(canny_output, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, Point(0, 0));
+			findContours(canny_output, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
 
 			/// Draw contours
-			drawing = Mat::zeros(canny_output.size(), CV_8UC3);
+			drawing = cv::Mat::zeros(canny_output.size(), CV_8UC3);
 			//cout << "Contours : " << contours.size() << endl;
 			int counter = 0;
 
-			vector<Rect> boundRect(contours.size());
+			vector<cv::Rect> boundRect(contours.size());
 			double area;
-			vector<Point2f>center(contours.size());
+			vector<cv::Point2f>center(contours.size());
 			vector<float>radius(contours.size());
 			double min=1000, max=0;
 			short num_max;
@@ -233,18 +264,18 @@ int main() {
 			//cout << "Max Area : " << max << "\t Num Max : " << num_max << endl;
 			for (int i = 0; i < contours.size(); i++)
 			{
-				approxPolyDP(Mat(contours[i]), contours[i], 3, true);
+				approxPolyDP(cv::Mat(contours[i]), contours[i], 3, true);
 				area = contourArea(contours[i]);
 				if (i == num_max) {
 
 				}
-				boundRect[i] = boundingRect(Mat(contours[i]));
-				minEnclosingCircle((Mat)contours[i], center[i], radius[i]);
-				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+				boundRect[i] = boundingRect(cv::Mat(contours[i]));
+				minEnclosingCircle((cv::Mat)contours[i], center[i], radius[i]);
+				cv::Scalar color = cv::Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 				rectangle(drawing, boundRect[i].tl(), boundRect[i].br(), color, 2, 8, 0);
-				drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, Point());
+				drawContours(drawing, contours, i, 124, 2, 8, hierarchy, 0, cv::Point());
 
-				//drawContours(color_replace, contours, i, 124, 2, 8, hierarchy, 0, Point());
+				//drawContours(color_replace, contours, i, 124, 2, 8, hierarchy, 0, cv::Point());
 
 			}
 		}
@@ -261,29 +292,29 @@ int main() {
 				for (int y = 0; y < color_replace.cols; y++) {
 					for (int x = 0; x < color_replace.rows; x++) {
 						if (en_addition) {
-							if (processed.at<uchar>(Point(y, x)) >= 100) {
+							if (processed.at<uchar>(cv::Point(y, x)) >= 100) {
 								hand_area++;
 							}
 							else {
-								color_replace.at<Vec3b>(Point(y, x)) = Vec3b(0, 255, 0);
+								color_replace.at<cv::Vec3b>(cv::Point(y, x)) = cv::Vec3b(0, 255, 0);
 							}
-						}else if (processed.at<uchar>(Point(y, x)) >= 100) {
-							color_replace.at<Vec3b>(Point(y, x)) = Vec3b(0,255,0);
+						}else if (processed.at<uchar>(cv::Point(y, x)) >= 100) {
+							color_replace.at<cv::Vec3b>(cv::Point(y, x)) = cv::Vec3b(0,255,0);
 							hand_area++;
 						}
 					}
 				}
 			}
 		}
-		//cout << "Pixel : (100,100) Color : " << color_replace.at<Vec3b>(Point(100, 100))[0] << "," << color_replace.at<Vec3b>(Point(100, 100))[1] << "," << color_replace.at<Vec3b>(Point(100, 100))[2] << endl;;
+		//cout << "Pixel : (100,100) Color : " << color_replace.at<Vec3b>(cv::Point(100, 100))[0] << "," << color_replace.at<Vec3b>(cv::Point(100, 100))[1] << "," << color_replace.at<Vec3b>(cv::Point(100, 100))[2] << endl;;
 		//Calculate Black pixel number
 		if (en_black_pixel_calc) {
 			int counter = 0;
 			for (int y = 0; y < color_replace.cols; y++) {
 				for (int x = 0; x < color_replace.rows; x++) {
-					if (color_replace.at<Vec3b>(Point(y, x))[0] <= 20) {
-						if (color_replace.at<Vec3b>(Point(y, x))[1]<= 20) {
-							if (color_replace.at<Vec3b>(Point(y, x))[2]<= 20) {
+					if (color_replace.at<cv::Vec3b>(cv::Point(y, x))[0] <= 20) {
+						if (color_replace.at<cv::Vec3b>(cv::Point(y, x))[1]<= 20) {
+							if (color_replace.at<cv::Vec3b>(cv::Point(y, x))[2]<= 20) {
 								counter++;
 							}
 						}
@@ -295,7 +326,7 @@ int main() {
 
 		//GUI Window
 		frame = cv::Scalar(49, 52, 49);
-		cvui::window(frame, 15, 10, 180, 600, "Controller");
+		cvui::window(frame, 15, 10, 180, 650, "Controller");
 		cvui::checkbox(frame, 30, 40, "Gaussian Blur", &en_gaussian);
 		cvui::checkbox(frame, 30, 60, "Invert Depth", &en_invert);
 		cvui::checkbox(frame, 30, 80, "Add Weighted", &en_sharpen);
@@ -324,17 +355,17 @@ int main() {
 			int x1=0, x2=0, x3=0,y1=250,y2=150,y3=60;
 			int width = 80, height = 80;
 			//Wheel counter
-			Rect crop(x1, y1, width, height);
-			Mat tmp = color_original_crop(crop).clone();
-			Mat tmp2 = color_original_crop(Rect(x2, y2, width, height)).clone();
-			Mat tmp3 = color_original_crop(Rect(x3, y3, width, height)).clone();
-			Mat tmp_d = depth_original_crop(crop).clone();
-			Mat tmp_d2 = depth_original_crop(Rect(x2, y2, width, height)).clone();
-			Mat tmp_d3 = depth_original_crop(Rect(x3, y3, width, height)).clone();
+			cv::Rect crop(x1, y1, width, height);
+			cv::Mat tmp = color_original_crop(crop).clone();
+			cv::Mat tmp2 = color_original_crop(cv::Rect(x2, y2, width, height)).clone();
+			cv::Mat tmp3 = color_original_crop(cv::Rect(x3, y3, width, height)).clone();
+			cv::Mat tmp_d = depth_original_crop(crop).clone();
+			cv::Mat tmp_d2 = depth_original_crop(cv::Rect(x2, y2, width, height)).clone();
+			cv::Mat tmp_d3 = depth_original_crop(cv::Rect(x3, y3, width, height)).clone();
 
-			rectangle(color_replace, cv::Point2f(x1, y1), cv::Point2f(x1+width, y1+height), cv::Scalar(255, 100, 100));
-			rectangle(color_replace, cv::Point2f(x2, y2), cv::Point2f(x2+width, y2+height), cv::Scalar(255, 100, 100));
-			rectangle(color_replace, cv::Point2f(x3, y3), cv::Point2f(x3 + width, y3 + height), cv::Scalar(255, 100, 100));
+			rectangle(color_replace, cv::Point2f((float)x1, (float)y1), cv::Point2f((float)x1+width, (float)y1+height), cv::Scalar(255, 100, 100));
+			rectangle(color_replace, cv::Point2f((float)x2, (float)y2), cv::Point2f((float)x2+width, (float)y2+height), cv::Scalar(255, 100, 100));
+			rectangle(color_replace, cv::Point2f((float)x3, (float)y3), cv::Point2f((float)x3 + width, (float)y3 + height), cv::Scalar(255, 100, 100));
 
 			if (en_pos_item_train) {
 				int hand_depth_detect = depth_pixel_counter(processed, 100, 190);
@@ -352,26 +383,30 @@ int main() {
 				}
 
 				int obj[3];
-				obj[0] = depth_pixel_counter(tmp_d, 160, 170);
-				obj[1] = depth_pixel_counter(tmp_d2, 160, 170);
-				obj[2] = depth_pixel_counter(tmp_d3, 160, 170);
+				obj[0] = depth_pixel_counter(tmp_d, 165, 175);
+				obj[1] = depth_pixel_counter(tmp_d2, 165, 175);
+				obj[2] = depth_pixel_counter(tmp_d3, 165, 175);
 				//for (int i = 0; i < 3; i++) {
 				//	cout << "\tObj " << i << " : " << abs(obj[i] - old_depth_pixel[i]);
 				//}
 				//cout << endl;
 				if (old_depth_pixel[0] != -1 && hand) {
-					double c_timer = state_timer.value;
 
 					if (abs(obj[0] - old_depth_pixel[0] > 200)) {
 						current_work_state = 2;
+						char* buff = "2";
+						serial_bt200->writeSerialPort("1",2);
 						last_time = current_time;
 					}else if (abs(obj[1] - old_depth_pixel[1] > 200)) {
 						current_work_state = 3;
+
+						serial_bt200->writeSerialPort("2", 2);
 						last_time = current_time;
 
 
 					}else if (abs(obj[2] - old_depth_pixel[2] > 200)) {
 						current_work_state = 4;
+						serial_bt200->writeSerialPort("3", 2);
 						last_time = current_time;
 					}
 
@@ -384,9 +419,9 @@ int main() {
 			}
 			int offset_pos_x = 200;
 			int offset_pos_y = 520;
-			Rect roi3(Rect(offset_pos_x, offset_pos_y, tmp.cols, tmp.rows));
-			Rect roi4(Rect(offset_pos_x + width, offset_pos_y, tmp.cols, tmp.rows));
-			Rect roi5(Rect(offset_pos_x + width + width, offset_pos_y, tmp.cols, tmp.rows));
+			cv::Rect roi3(cv::Rect(offset_pos_x, offset_pos_y, tmp.cols, tmp.rows));
+			cv::Rect roi4(cv::Rect(offset_pos_x + width, offset_pos_y, tmp.cols, tmp.rows));
+			cv::Rect roi5(cv::Rect(offset_pos_x + width + width, offset_pos_y, tmp.cols, tmp.rows));
 			imshow("Crop Depth", depth_original_crop);
 			cvtColor(tmp_d, tmp_d, cv::COLOR_GRAY2BGR);
 			cvtColor(tmp_d2, tmp_d2, cv::COLOR_GRAY2BGR);
@@ -403,20 +438,20 @@ int main() {
 		//Display Multi Image in single window
 		try
 		{
-			Mat Color_display;
+			cv::Mat Color_display;
 			resize(color_replace, Color_display, cv::Size(), 0.8, 0.8);
-			Rect roi(Rect(200, 15, Color_display.cols, Color_display.rows));
+			cv::Rect roi(cv::Rect(200, 15, Color_display.cols, Color_display.rows));
 			Color_display.copyTo(frame(roi));
 
-			Mat processed_display;
+			cv::Mat processed_display;
 			resize(processed, processed_display, cv::Size(), 0.8, 0.8);
-			Rect roi2(Rect(200+Color_display.cols+10, 15, processed_display.cols, processed_display.rows));
+			cv::Rect roi2(cv::Rect(200+Color_display.cols+10, 15, processed_display.cols, processed_display.rows));
 			cvtColor(processed_display, processed_display, cv::COLOR_GRAY2BGR);
 			processed_display.copyTo(frame(roi2));
 
-			Mat drawing_display;
+			cv::Mat drawing_display;
 			resize(drawing, drawing_display, cv::Size(), 0.8, 0.8);
-			Rect roi3(Rect(200 + Color_display.cols + processed_display.cols + 20, 15, processed_display.cols, processed_display.rows));
+			cv::Rect roi3(cv::Rect(200 + Color_display.cols + processed_display.cols + 20, 15, processed_display.cols, processed_display.rows));
 			drawing_display.copyTo(frame(roi3));
 		}
 		catch (cv::Exception& e)
@@ -429,8 +464,8 @@ int main() {
 			record = !record;
 			if (record == true) {
 				std::cout << "Record! : " << record << std::endl;
-				rgbWrite.open("ColorVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), true);
-				depthWrite.open("depthVid.mkv", VideoWriter::fourcc('F', 'F', 'V', '1'), 30, Size(frameWidth, frameHeight), false);
+				rgbWrite.open("ColorVid.mkv", cv::VideoWriter::fourcc('F', 'F', 'V', '1'), 30, cv::Size(frameWidth, frameHeight), true);
+				depthWrite.open("depthVid.mkv", cv::VideoWriter::fourcc('F', 'F', 'V', '1'), 30, cv::Size(frameWidth, frameHeight), false);
 				if (rgbWrite.isOpened()) {
 					cout << "ColorVid.mkv Ready!" << endl;
 				}
@@ -520,14 +555,24 @@ int main() {
 				run_cam = false;
 			}
 		}
+		//Serial Initialization
+		if (cvui::button(frame, 30, 480, "Serial Connect")) {
+			serial_bt200 = new SerialPort("COM4");
+
+			//Checking if arduino is connected or not
+			if (serial_bt200->isConnected()) {
+				std::cout << "Connection established at port " << portName << endl;
+			}
+		}
 		cvui::text(frame, 500, 500, status_label);
+		cvui::text(frame, 500, 550, count_time);
 
 		cvui::update();
 		imshow("Raw Depth Image", frameDepth);
 		imshow(MAIN_WINDOW_NAME, frame);
 		/*
 		if (en_handpress) {
-			if (raw_depth.at<uchar>(Point(609, 430)) >= 167 && raw_depth.at<uchar>(Point(609, 430)) <= 169)
+			if (raw_depth.at<uchar>(cv::Point(609, 430)) >= 167 && raw_depth.at<uchar>(cv::Point(609, 430)) <= 169)
 			{
 				if (time_counter > (double)(BEEP_AF_SECONDS * CLOCKS_PER_SEC)) {
 					cout << '\a';
@@ -558,13 +603,14 @@ int main() {
 			cout << "Over 20 Seconds Idle" << endl;
 			last_time = current_time;
 			current_work_state = 0;
+			serial_bt200->writeSerialPort("0", 2);
 		}
 		//Awaiting key input to escape || Step Look
-		if (waitKey(1) == 27) break;
-		if (waitKey(1) == 's')step_look = !step_look;
-		if (waitKey(1) == 'm')cout<<" Hand area : " << hand_area <<endl;
+		if (cv::waitKey(1) == 27) break;
+		if (cv::waitKey(1) == 's')step_look = !step_look;
+		if (cv::waitKey(1) == 'm')cout<<" Hand area : " << hand_area <<endl;
 
-		if (step_look)waitKey(0);
+		if (step_look)cv::waitKey(0);
 
 	}
 	//_endthread();

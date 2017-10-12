@@ -10,8 +10,6 @@
 
 
 using namespace std;
-using namespace cv;
-
 
 //Threshold Parameter
 int threshold_value = 120;
@@ -32,7 +30,7 @@ const int BEEP_AF_SECONDS = 1;
 
 //Enable Filter/Feature
 bool en_gaussian = false;
-Size en_gaussian_kernel = Size(3, 3);
+cv::Size en_gaussian_kernel = cv::Size(3, 3);
 
 bool en_sharpen = false;
 double en_sharpen_alpha = 1.5; double en_sharpen_beta = -0.5; double en_sharpen_gamma = 0;
@@ -61,33 +59,33 @@ bool en_pos_hand = false;
 const int frameHeight = 480;
 const int frameWidth = 640;
 /**  @function Erosion  */
-Mat Erosion(Mat src,int erosion_size,int erosion_elem, void*)
+cv::Mat Erosion(cv::Mat src,int erosion_size,int erosion_elem, void*)
 {
 	int erosion_type;
-	if (erosion_elem == 0) { erosion_type = MORPH_RECT; }
-	else if (erosion_elem == 1) { erosion_type = MORPH_CROSS; }
-	else if (erosion_elem == 2) { erosion_type = MORPH_ELLIPSE; }
-	Mat erosion_dst;
-	Mat element = getStructuringElement(erosion_type,
-		Size(2 * erosion_size + 1, 2 * erosion_size + 1),
-		Point(erosion_size, erosion_size));
+	if (erosion_elem == 0) { erosion_type = cv::MORPH_RECT; }
+	else if (erosion_elem == 1) { erosion_type = cv::MORPH_CROSS; }
+	else if (erosion_elem == 2) { erosion_type = cv::MORPH_ELLIPSE; }
+	cv::Mat erosion_dst;
+	cv::Mat element = getStructuringElement(erosion_type,
+		cv::Size(2 * erosion_size + 1, 2 * erosion_size + 1),
+		cv::Point(erosion_size, erosion_size));
 	/// Apply the erosion operation
 	erode(src, erosion_dst, element);
 	return erosion_dst;
 }
 
 /** @function Dilation */
-Mat Dilation(Mat src,int dilation_size,int dilation_elem, void*)
+cv::Mat Dilation(cv::Mat src,int dilation_size,int dilation_elem, void*)
 {
-	Mat dilation_dst;
+	cv::Mat dilation_dst;
 	int dilation_type;
-	if (dilation_elem == 0) { dilation_type = MORPH_RECT; }
-	else if (dilation_elem == 1) { dilation_type = MORPH_CROSS; }
-	else if (dilation_elem == 2) { dilation_type = MORPH_ELLIPSE; }
+	if (dilation_elem == 0) { dilation_type = cv::MORPH_RECT; }
+	else if (dilation_elem == 1) { dilation_type = cv::MORPH_CROSS; }
+	else if (dilation_elem == 2) { dilation_type = cv::MORPH_ELLIPSE; }
 
-	Mat element = getStructuringElement(dilation_type,
-		Size(2 * dilation_size + 1, 2 * dilation_size + 1),
-		Point(dilation_size, dilation_size));
+	cv::Mat element = getStructuringElement(dilation_type,
+		cv::Size(2 * dilation_size + 1, 2 * dilation_size + 1),
+		cv::Point(dilation_size, dilation_size));
 	/// Apply the dilation operation
 	dilate(src, dilation_dst, element);
 	return dilation_dst;
@@ -131,16 +129,16 @@ int RS200_Initialize(rs::device * dev) {
 	return EXIT_SUCCESS;
 }
 
-Mat getDepthImage(rs::device * dev) {
-	Mat ir1(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared), Mat::AUTO_STEP);
-	Mat ir2(Size(frameWidth, frameHeight), CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared2), Mat::AUTO_STEP);
-	//Mat ir1(Size(frameWidth, frameHeight), CV_8UC1);
-	//Mat ir2(Size(frameWidth, frameHeight), CV_8UC1);
+cv::Mat getDepthImage(rs::device * dev) {
+	cv::Mat ir1(cv::Size(frameWidth, frameHeight),CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared), cv::Mat::AUTO_STEP);
+	cv::Mat ir2(cv::Size(frameWidth, frameHeight),CV_8UC1, (void*)dev->get_frame_data(rs::stream::infrared2), cv::Mat::AUTO_STEP);
+	//cv::Mat ir1(Size(frameWidth, frameHeight), CV_8UC1);
+	//cv::Mat ir2(Size(frameWidth, frameHeight), CV_8UC1);
 
-	// Creating OpenCV matrix from infrared image (Depth Image Generate)
+	// Creating OpenCV cv::Matrix from infrared image (Depth Image Generate)
 
-	Ptr<StereoBM> sbm = StereoBM::create(64, 13);
-	Mat depth(Size(frameWidth, frameHeight), CV_16UC1), frameDepth(Size(frameWidth, frameHeight), CV_8UC1);
+	cv::Ptr<cv::StereoBM> sbm = cv::StereoBM::create(64, 13);
+	cv::Mat depth(cv::Size(frameWidth, frameHeight), CV_16UC1), frameDepth(cv::Size(frameWidth, frameHeight), CV_8UC1);
 
 	sbm->compute(ir1, ir2, depth);
 	double minVal; double maxVal;
@@ -153,9 +151,9 @@ Mat getDepthImage(rs::device * dev) {
 	return frameDepth;
 }
 
-int BlobDetect(Mat depth_original_crop,Mat* drawing,float min_thresh,float max_thresh,float min_area) {
+int BlobDetect(cv::Mat depth_original_crop,cv::Mat* drawing,float min_thresh,float max_thresh,float min_area) {
 	// Setup SimpleBlobDetector parameters.
-	SimpleBlobDetector::Params params;
+	cv::SimpleBlobDetector::Params params;
 
 	// Change thresholds
 	params.minThreshold = min_thresh;
@@ -176,19 +174,19 @@ int BlobDetect(Mat depth_original_crop,Mat* drawing,float min_thresh,float max_t
 	// Filter by Inertia
 	params.filterByInertia = true;
 	params.minInertiaRatio = (float)0.01;
-	Ptr<SimpleBlobDetector> b_detector = SimpleBlobDetector::create(params);
+	cv::Ptr<cv::SimpleBlobDetector> b_detector = cv::SimpleBlobDetector::create(params);
 	// Storage for blobs
-	vector<KeyPoint> keypoints;
+	std::vector<cv::KeyPoint> keypoints;
 
 	// Detect blobs
 	b_detector->detect(depth_original_crop, keypoints);
 
 	// Draw detected blobs as red circles.
-	// DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
+	// Drawcv::MatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
 	// the size of the circle corresponds to the size of blob
 
-	Mat im_with_keypoints;
-	drawKeypoints(*drawing, keypoints, *drawing, Scalar(255, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+	cv::Mat im_with_keypoints;
+	drawKeypoints(*drawing, keypoints, *drawing, cv::Scalar(255, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 	//cout << "////////////Blob Detection/////////////" << endl;
 	short blob_counter = 0;
 	for (std::vector<cv::KeyPoint>::iterator blobIterator = keypoints.begin(); blobIterator != keypoints.end(); blobIterator++) {
@@ -200,11 +198,11 @@ int BlobDetect(Mat depth_original_crop,Mat* drawing,float min_thresh,float max_t
 	return blob_counter;
 }
 
-int depth_pixel_counter(Mat tmp_d, int thres_min,int thres_max) {
+int depth_pixel_counter(cv::Mat tmp_d, int thres_min,int thres_max) {
 	int px_counter = 0;
 	for (int x = 0; x < tmp_d.rows; x++) {
 		for (int y = 0; y < tmp_d.cols; y++) {
-			if (tmp_d.at<uchar>(Point(x, y)) > thres_min,tmp_d.at<uchar>(Point(x,y)) < thres_max) {
+			if (tmp_d.at<uchar>(cv::Point(x, y)) > thres_min,tmp_d.at<uchar>(cv::Point(x,y)) < thres_max) {
 				px_counter++;
 			}
 		}

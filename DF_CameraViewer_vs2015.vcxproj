@@ -236,12 +236,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Src\camera_viewer.cpp" />
+    <ClCompile Include="src\SerialPort.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MCore.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="..\common\include\util_cmdline.h" />
     <ClInclude Include="src\cvui.h" />
+    <ClInclude Include="src\SerialPort.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="camera_viewer.rc" />
